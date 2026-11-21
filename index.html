@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Open Respiratory & Core 3D Atlas — 83 真实医学网格呼吸发力可视化</title>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
+  <style>
+    :root {
+      --bg: #050811;
+      --surface: rgba(13, 20, 36, 0.87);
+      --card: rgba(22, 32, 54, 0.78);
+      --border: rgba(148, 163, 184, 0.16);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --green: #10b981;
+      --orange: #f97316;
+      --purple: #a855f7;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      user-select: none;
+    }
+    #viewport {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at 50% 45%, #14223d 0%, #080e1c 58%, #04070f 100%);
+      z-index: 0;
+    }
+    #threeRoot { width: 100%; height: 100%; cursor: grab; }
+    #threeRoot:active { cursor: grabbing; }
+    #labelsLayer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+      overflow: hidden;
+    }
+    .pin-label {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      background: rgba(9, 14, 28, 0.78);
+      border: 1px solid rgba(56, 189, 248, 0.42);
+      color: #e2e8f0;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 99px;
+      white-space: nowrap;
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: opacity 0.2s;
+    }
+    .pin-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+    .topbar {
+      position: fixed;
+      top: 12px; left: 14px; right: 14px;
+      height: 50px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      backdrop-filter: blur(14px);
+      z-index: 10;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 0.96rem; }
+    .brand-tag {
+      font-size: 0.7rem; font-weight: 600; color: var(--accent);
+      background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 2px 8px; border-radius: 99px;
+    }
+    .preset-bar { display: flex; align-items: center; gap: 6px; }
+
+    .panel-left, .panel-right {
+      position: fixed;
+      top: 72px; bottom: 82px;
+      width: 288px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      backdrop-filter: blur(14px);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+      overflow-y: auto;
+      box-shadow: 0 14px 40px rgba(0,0,0,0.4);
+    }
+    .panel-left { left: 14px; }
+    .panel-right { right: 14px; width: 320px; }
+    .panel-left::-webkit-scrollbar, .panel-right::-webkit-scrollbar { width: 5px; }
+    .panel-left::-webkit-scrollbar-thumb, .panel-right::-webkit-scrollbar-thumb {
+      background: rgba(148,163,184,0.25); border-radius: 99px;
+    }
+
+    .sec-title {
+      font-size: 0.71rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.8px; color: var(--muted); margin-bottom: 6px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 9px 11px;
+    }
+    .search-box {
+      width: 100%; background: rgba(6, 10, 20, 0.75); border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 10px; color: var(--text); font-size: 0.8rem; outline: none;
+    }
+    .search-box:focus { border-color: var(--accent); }
+
+    .layer-item { padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .layer-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .layer-head { display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; margin-bottom: 3px; }
+    .layer-head label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+    .part-list { display: flex; flex-direction: column; gap: 3px; max-height: 175px; overflow-y: auto; margin-top: 6px; }
+    .part-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 5px 8px; border-radius: 6px; font-size: 0.77rem;
+      background: rgba(7, 12, 24, 0.65); border: 1px solid transparent; cursor: pointer;
+    }
+    .part-item:hover { border-color: rgba(56, 189, 248, 0.5); }
+    .part-item.selected { background: rgba(56, 189, 248, 0.18); border-color: var(--accent); }
+    .part-fma { font-size: 0.67rem; color: #64748b; }
+
+    button {
+      background: rgba(30, 44, 72, 0.85); color: var(--text);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      padding: 6px 10px; border-radius: 8px; font-size: 0.78rem;
+      font-weight: 500; cursor: pointer; transition: all 0.15s;
+    }
+    button:hover { background: rgba(46, 67, 108, 0.95); }
+    button.active { background: var(--accent); color: #050811; border-color: var(--accent); font-weight: 700; }
+    button.green.active { background: var(--green); color: #042218; border-color: var(--green); }
+    button.orange.active { background: var(--orange); color: #1c0a00; border-color: var(--orange); }
+    button.red.active { background: var(--red); color: #fff; border-color: var(--red); }
+
+    input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; height: 4px; }
+    input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+
+    .bottom-dock {
+      position: fixed;
+      bottom: 12px; left: 14px; right: 14px;
+      height: 58px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0 14px;
+      backdrop-filter: blur(14px);
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 12px 35px rgba(0,0,0,0.45);
+    }
+    .phase-pill {
+      min-width: 142px; padding: 4px 9px; border-radius: 8px;
+      background: rgba(7, 12, 24, 0.8); border: 1px solid var(--border); font-size: 0.76rem;
+    }
+    .phase-pill strong { display: block; font-size: 0.82rem; }
+
+    .cam-pills {
+      position: fixed;
+      top: 72px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 5px;
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 4px 8px; border-radius: 99px; backdrop-filter: blur(10px); z-index: 9;
+    }
+    .cam-pills button { border-radius: 99px; padding: 4px 10px; font-size: 0.75rem; background: transparent; border-color: transparent; }
+    .cam-pills button:hover { background: rgba(56,189,248,0.16); color: var(--accent); }
+
+    .insp-title { font-size: 0.96rem; font-weight: 700; color: var(--accent); }
+    .insp-en { font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
+    .insp-badge {
+      display: inline-block; font-size: 0.68rem; padding: 2px 6px; border-radius: 5px;
+      background: rgba(6, 10, 20, 0.85); border: 1px solid var(--border); color: #cbd5e1; margin-bottom: 6px;
+    }
+    .insp-desc { font-size: 0.78rem; color: #cbd5e1; line-height: 1.48; }
+    .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 8px; }
+
+    canvas#scopeCanvas {
+      width: 100%; height: 98px; background: #060a14;
+      border-radius: 8px; border: 1px solid var(--border); display: block; margin-top: 5px;
+    }
+    .metrics-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-top: 7px; }
+    .metric-box {
+      background: rgba(6, 10, 20, 0.78); border: 1px solid var(--border);
+      border-radius: 7px; padding: 5px; text-align: center;
+    }
+    .metric-box span { display: block; font-size: 0.66rem; color: var(--muted); }
+    .metric-box strong { font-size: 0.81rem; }
+
+    .bar-row { margin-top: 6px; font-size: 0.74rem; }
+    .bar-head { display: flex; justify-content: space-between; margin-bottom: 2px; color: #cbd5e1; }
+    .bar-track { height: 5px; background: #060a14; border-radius: 99px; overflow: hidden; }
+    .bar-val { height: 100%; border-radius: 99px; transition: width 0.25s ease; }
+
+    .loader-overlay {
+      position: fixed; inset: 0; background: rgba(5, 8, 17, 0.94);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 50; backdrop-filter: blur(10px);
+    }
+    .loader-bar { width: 320px; height: 8px; background: #17223a; border-radius: 99px; overflow: hidden; margin-top: 14px; }
+    .loader-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #38bdf8, #10b981, #f97316); transition: width 0.1s; }
+  </style>
+</head>
+<body>
+  <div id="viewport"><div id="threeRoot"></div></div>
+  <div id="labelsLayer"></div>
+
+  <div class="loader-overlay" id="loaderOverlay">
+    <div style="font-size: 1.2rem; font-weight: 700;">🫁 Open Respiratory &amp; Core 3D Atlas</div>
+    <div id="loaderText" style="font-size: 0.85rem; color: var(--muted); margin-top: 6px;">正在加载 83 个 BodyParts3D 真实医学网格...</div>
+    <div class="loader-bar"><div class="loader-fill" id="loaderFill"></div></div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span>🫁 Open Respiratory &amp; Core 3D Atlas</span>
+      <span class="brand-tag">83 医学网格 · 颈胸腹盆底全链路发力</span>
+    </div>
+    <div class="preset-bar">
+      <button id="preStandard" class="active" onclick="applyPreset('standard')">全景呼吸核心</button>
+      <button id="preXray" onclick="applyPreset('xray')">X-Ray 气道透视</button>
+      <button id="preSlice" onclick="applyPreset('slice')">冠状面解剖切面</button>
+      <button id="preMuscle" onclick="applyPreset('muscle')">发力肌群聚焦</button>
+      <button id="btnVectors" class="active" onclick="toggleVectors()">🏹 3D 发力箭头</button>
+      <button id="btnLabels" class="active" onclick="toggleLabels()">🏷️ 空间标注</button>
+    </div>
+  </header>
+
+  <div class="cam-pills">
+    <button onclick="setCam('iso')">3/4 全身核心</button>
+    <button onclick="setCam('front')">正面</button>
+    <button onclick="setCam('side')">右侧面</button>
+    <button onclick="setCam('neck')">颈肩特写</button>
+    <button onclick="setCam('pelvis')">盆底特写</button>
+    <button onclick="resetAll()">♻️ 重置</button>
+  </div>
+
+  <aside class="panel-left">
+    <div>
+      <div class="sec-title">解剖图层与透明度 <span>8 Systems</span></div>
+      <div class="card">
+        <div class="layer-item">
+          <div class="layer-head">
+            <label><input type="checkbox" id="chkLungs" checked /><span class="dot" style="background:#f472b6"></span>双肺 5 叶</label>
+            <span id="valLungs" style="color:var(--muted)">82%</span>
+          </div>
+          <input type="range" id="opLungs" min="10" max="100" value="82" />
+        </div>
+        <div class="layer-item">
+          <div class="layer-head">
+            <label><input type="checkbox" id="chkAirway" checked /><span class="dot" style="background:#38bdf8"></span>喉 / 气管 / 支气管树</label>
+            <span id="valAirway" style="color:var(--muted)">100%</span>
+          </div>
+          <input type="range" id="opAirway" min="15" max="100" value="100" />
+        </div>
+        <div class="layer-item">
+          <div class="layer-head">
+            <label><input type="checkbox" id="chkDia" checked /><span class="dot" style="background:#f97316"></span>横膈肌 (主呼吸肌)</label>
+            <span id="valDia" style="color:var(--muted)">95%</span>
+          </div>
+          <input type="range" id="opDia" min="15" max="100" value="95" />
+        </div>
+        <div class="layer-item">
+          <div class="layer-head">
+            <label><input type="checkbox" id="chkIntercostal" checked /><span class="dot" style="background:#fb923c"></span>肋间外肌 (胸式主角)</label>
+            <span id="valIntercostal" style="color:var(--muted)">35%</span>
+          </div>
+          <input type="range" id="opIntercostal" min="5" max="100" value="35" />
+        </div>
+        <div class="layer-item">
+          <div class="layer-head">
+            <label><input type="checkbox" id="chkNeck" checked /><span class="dot" style="background:#ef4444"></span>颈肩辅助肌 (胸锁/斜角/斜方)</label>
+            <span id="valNeck" style="color:var(--muted)">72%</span>
+          </div>
+          <input type="range" id="opNeck" min="10" max="100" value="72" />
+        </div>
+        <div class="layer-item">
+          <div class="layer-head">
+            <label><input type="checkbox" id="chkCore" checked /><span class="dot" style="background:#a855f7"></span>腹横肌 (深层束腰)</label>
+            <span id="valCore" style="color:var(--muted)">38%</span>
+          </div>
+          <input type="range" id="opCore" min="5" max="100" value="38" />
+        </div>
+        <div class="layer-item">
+          <div class="layer-head">
+            <label><input type="checkbox" id="chkPelvic" checked /><span class="dot" style="background:#10b981"></span>盆底肌 (肛提肌 8 块)</label>
+            <span id="valPelvic" style="color:var(--muted)">95%</span>
+          </div>
+          <input type="range" id="opPelvic" min="15" max="100" value="95" />
+        </div>
+        <div class="layer-item">
+          <div class="layer-head">
+            <label><input type="checkbox" id="chkBones" checked /><span class="dot" style="background:#e7e1d3"></span>胸廓 + 脊柱 + 骨盆</label>
+            <span id="valBones" style="color:var(--muted)">38%</span>
+          </div>
+          <input type="range" id="opBones" min="10" max="100" value="38" />
+        </div>
+        <div class="layer-item">
+          <div class="layer-head">
+            <label><input type="checkbox" id="chkFlow" checked /><span class="dot" style="background:#22d3ee"></span>3D 气道气流粒子</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-title">冠状面 3D 剖面切片 <span>Clipping</span></div>
+      <div class="card">
+        <div class="layer-head" style="margin-bottom:5px;">
+          <span>切开肺叶 / 腹横肌 / 肋间肌</span>
+          <span id="sliceVal" style="color:var(--accent)">关闭</span>
+        </div>
+        <input type="range" id="sliceSlider" min="0" max="100" value="0" />
+      </div>
+    </div>
+
+    <div style="flex:1; display:flex; flex-direction:column; min-height:130px;">
+      <div class="sec-title">搜索 83 个解剖结构 <span>Search</span></div>
+      <input type="text" class="search-box" id="searchInput" placeholder="搜斜角肌 / 肋间肌 / 盆底 / 腹横肌..." />
+      <div class="part-list" id="partList"></div>
+    </div>
+  </aside>
+
+  <aside class="panel-right">
+    <div>
+      <div class="sec-title">结构检查器 <span>Inspector</span></div>
+      <div class="card">
+        <div class="insp-title" id="inspName">点击 3D 场景中的任意肌肉或器官</div>
+        <div class="insp-en" id="inspEn">Click any of the 83 anatomical structures</div>
+        <div class="insp-badge" id="inspFma">FMA ID: --</div>
+        <div class="insp-desc" id="inspDesc">肌肉正在发力时会按实时表面肌电（EMG）泛出橙红/翠绿高亮，配合 3D 发力方向箭头直观呈现“谁在拉、往哪拉”。</div>
+        <div class="action-grid">
+          <button id="btnIsolate">🔍 孤立显示</button>
+          <button id="btnHide">👁️ 隐藏选中</button>
+          <button id="btnFade">🫧 半透明切换</button>
+          <button id="btnFocus">🎯 聚焦居中</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-title">胸腔三维度扩张 &amp; 肌群做功 <span>Biomechanics</span></div>
+      <div class="card">
+        <div style="font-size:0.72rem; color:var(--accent); font-weight:700; margin-bottom:4px;">胸腔容积扩张方向（纵 / 横 / 前后径）</div>
+        <div class="bar-row" style="margin-top:0;">
+          <div class="bar-head"><span>纵径（横膈肌下降）</span><strong id="dimVertTxt" style="color:var(--orange)">80%</strong></div>
+          <div class="bar-track"><div class="bar-val" id="dimVertBar" style="width:80%; background:var(--orange);"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-head"><span>横径（下肋 7~10 桶柄外展）</span><strong id="dimTransTxt" style="color:var(--accent)">30%</strong></div>
+          <div class="bar-track"><div class="bar-val" id="dimTransBar" style="width:30%; background:var(--accent);"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-head"><span>前后径（胸骨/上肋泵柄抬升）</span><strong id="dimApTxt" style="color:#60a5fa">15%</strong></div>
+          <div class="bar-track"><div class="bar-val" id="dimApBar" style="width:15%; background:#60a5fa;"></div></div>
+        </div>
+
+        <div style="font-size:0.72rem; color:var(--green); font-weight:700; margin:9px 0 4px;">实时肌群发力占比（对应 3D 高亮）</div>
+        <div class="bar-row" style="margin-top:0;">
+          <div class="bar-head"><span>横膈肌 + 盆底/腹横协同</span><strong id="emgDiaTxt" style="color:var(--green)">80%</strong></div>
+          <div class="bar-track"><div class="bar-val" id="emgDiaBar" style="width:80%; background:var(--green);"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-head"><span>肋间外肌</span><strong id="emgRibTxt" style="color:#fb923c">20%</strong></div>
+          <div class="bar-track"><div class="bar-val" id="emgRibBar" style="width:20%; background:#fb923c;"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-head"><span>颈肩代偿（胸锁/斜角/斜方/胸小）</span><strong id="emgNeckTxt" style="color:var(--red)">0%</strong></div>
+          <div class="bar-track"><div class="bar-val" id="emgNeckBar" style="width:0%; background:var(--red);"></div></div>
+        </div>
+        <div id="modeNote" style="font-size:0.74rem; color:#cbd5e1; margin-top:8px; line-height:1.45; background:rgba(6,10,20,0.6); padding:7px 8px; border-radius:7px;">
+          腹式呼吸：横膈肌主动收缩下降拉深纵径，腹横肌吸气放松外扩、盆底肌离心微降承接；胸口与脖子完全放松。
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-title">呼吸力学示波器 <span>Physiology</span></div>
+      <div class="card">
+        <div style="font-size:0.71rem; color:var(--muted); display:flex; justify-content:space-between;">
+          <span><span style="color:#38bdf8">●</span> 肺容积</span>
+          <span><span style="color:#f97316">●</span> 胸膜压</span>
+          <span><span style="color:#10b981">●</span> 流速</span>
+        </div>
+        <canvas id="scopeCanvas" width="290" height="98"></canvas>
+        <div class="metrics-grid">
+          <div class="metric-box"><span>潮气增量</span><strong id="mVol" style="color:var(--accent)">+0 mL</strong></div>
+          <div class="metric-box"><span>胸膜负压</span><strong id="mPress" style="color:var(--orange)">-5.0</strong></div>
+          <div class="metric-box"><span>膈肌下降</span><strong id="mDia" style="color:var(--green)">0.0 cm</strong></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="bottom-dock">
+    <button id="btnPlay" class="active" style="min-width:68px;">⏸ 暂停</button>
+    <div class="phase-pill">
+      <strong id="phaseTitle" style="color:var(--accent)">吸气相 Inspiration</strong>
+      <span id="phaseSub" style="font-size:0.7rem; color:var(--muted)">膈肌下降 · 盆底承接</span>
+    </div>
+    <button id="modeAb" class="green active">1. 腹式呼吸</button>
+    <button id="mode360" class="green">2. 360°胸腹联合(推荐)</button>
+    <button id="modeChest" class="orange">3. 胸式呼吸</button>
+    <button id="modeNeck" class="red">4. 颈部代偿呼吸</button>
+    <div style="flex:1; display:flex; align-items:center; gap:7px; margin-left:4px;">
+      <span style="font-size:0.74rem; color:var(--muted); white-space:nowrap;">相位</span>
+      <input type="range" id="phaseSlider" min="0" max="100" value="0" />
+    </div>
+  </div>
+
+<script>
+(function() {
+  // === 1. 完整 83 个 BodyParts3D 医学网格元数据 ===
+  const PARTS_META = [
+    // 气道 (3)
+    { id: 'FMA55099', cn: '甲状软骨 (喉)', en: 'Thyroid cartilage', group: 'airway', color: 0x7dd3fc, desc: '构成喉前壁的最大软骨，维持上气道通畅。', pin: true },
+    { id: 'FMA7394',  cn: '气管', en: 'Trachea', group: 'airway', color: 0x38bdf8, desc: '由 C 形软骨环支撑的主气道。' },
+    { id: 'FMA7409',  cn: '支气管树', en: 'Bronchus', group: 'airway', color: 0x0284c7, desc: '分叉进入左右肺叶的各级支气管树。', pin: true },
+
+    // 双肺 5 叶 (5)
+    { id: 'FMA7333', cn: '右肺上叶', en: 'Upper lobe of right lung', group: 'lungs', color: 0xf48fb1, desc: '右肺最上方肺叶，胸式呼吸时向前上方扩张。', pin: true },
+    { id: 'FMA7383', cn: '右肺中叶', en: 'Middle lobe of right lung', group: 'lungs', color: 0xec6b96, desc: '右肺中叶，紧贴前胸壁。' },
+    { id: 'FMA7337', cn: '右肺下叶', en: 'Lower lobe of right lung', group: 'lungs', color: 0xd8507d, desc: '右肺最大肺叶，紧贴横膈肌右穹顶，腹式/360°呼吸时充分向下外侧扩张。' },
+    { id: 'FMA7370', cn: '左肺上叶', en: 'Upper lobe of left lung', group: 'lungs', color: 0xf48fb1, desc: '左肺上叶（含心切迹）。' },
+    { id: 'FMA7371', cn: '左肺下叶', en: 'Lower lobe of left lung', group: 'lungs', color: 0xd8507d, desc: '左肺下叶，紧贴横膈肌左穹顶。' },
+
+    // 主呼吸肌：横膈肌 (1)
+    { id: 'FMA13295', cn: '横膈肌', en: 'Diaphragm', group: 'diaphragm', color: 0xe65c2e, desc: '核心主呼吸肌：收缩时穹顶下降拉深胸腔纵径；发力时实时泛橙红热力高亮。', pin: true },
+
+    // 胸式呼吸主角：肋间外肌 (1)
+    { id: 'FMA9756', cn: '肋间外肌', en: 'External intercostal muscle', group: 'intercostal', color: 0xd97706, desc: '位于相邻肋骨之间，胸式呼吸与 360° 桶柄外展时主动收缩，拉动肋骨上提外展。', pin: true },
+
+    // 颈肩辅助/代偿呼吸肌 (10)
+    { id: 'FMA13408', cn: '右侧胸锁乳突肌', en: 'Right sternocleidomastoid', group: 'neck', sub: 'neck_pull', color: 0xc25454, desc: '颈部辅助呼吸肌，拉提胸骨柄与锁骨。颈部代偿呼吸时强烈发红发力。', pin: true },
+    { id: 'FMA13409', cn: '左侧胸锁乳突肌', en: 'Left sternocleidomastoid', group: 'neck', sub: 'neck_pull', color: 0xc25454, desc: '左侧胸锁乳突肌，颈部呼吸时过度代偿易导致颈前紧绷。' },
+    { id: 'FMA13392', cn: '右侧前斜角肌', en: 'Right scalenus anterior', group: 'neck', sub: 'neck_pull', color: 0xdc2626, desc: '起自颈椎、止于第 1 肋骨！颈部呼吸时直接把第 1 肋往上硬拎。', pin: true },
+    { id: 'FMA13393', cn: '左侧前斜角肌', en: 'Left scalenus anterior', group: 'neck', sub: 'neck_pull', color: 0xdc2626, desc: '左侧前斜角肌，止于第 1 肋骨，代偿过度易压迫臂丛神经。' },
+    { id: 'FMA13390', cn: '右侧中斜角肌', en: 'Right scalenus medius', group: 'neck', sub: 'neck_pull', color: 0xb91c1c, desc: '止于第 1 肋骨，协助颈部呼吸上提上胸廓。' },
+    { id: 'FMA13391', cn: '左侧中斜角肌', en: 'Left scalenus medius', group: 'neck', sub: 'neck_pull', color: 0xb91c1c, desc: '左侧中斜角肌，止于第 1 肋骨。' },
+    { id: 'FMA13388', cn: '右侧后斜角肌', en: 'Right scalenus posterior', group: 'neck', sub: 'neck_pull', color: 0x991b1b, desc: '止于第 2 肋骨，深吸气或颈部代偿时上提第 2 肋。' },
+    { id: 'FMA13389', cn: '左侧后斜角肌', en: 'Left scalenus posterior', group: 'neck', sub: 'neck_pull', color: 0x991b1b, desc: '左侧后斜角肌，止于第 2 肋骨。' },
+    { id: 'FMA33586', cn: '右侧上斜方肌', en: 'Right upper trapezius', group: 'neck', sub: 'shrug', color: 0xb45309, desc: '颈肩耸肩肌。长期用颈部呼吸会导致上斜方肌持续紧张僵硬（肩颈酸痛根源）。' },
+    { id: 'FMA33587', cn: '左侧上斜方肌', en: 'Left upper trapezius', group: 'neck', sub: 'shrug', color: 0xb45309, desc: '左侧上斜方肌，颈部呼吸时伴随耸肩代偿。' },
+    { id: 'FMA13375', cn: '右侧胸小肌', en: 'Right pectoralis minor', group: 'neck', sub: 'chest_aux', color: 0xbe123c, desc: '连于肩胛骨喙突与第 3~5 肋，胸式/用力呼吸时上提上肋，过紧易导致圆肩。' },
+    { id: 'FMA13376', cn: '左侧胸小肌', en: 'Left pectoralis minor', group: 'neck', sub: 'chest_aux', color: 0xbe123c, desc: '左侧胸小肌，协助上胸廓前上提拉。' },
+
+    // 核心腹壁：左右腹横肌 (2)
+    { id: 'FMA22344', cn: '右侧腹横肌', en: 'Right transversus abdominis', group: 'core', color: 0xa855f7, desc: '最深层的“天然束腰”。腹式/360°吸气时柔和外扩；呼气时向内收紧稳定腰椎。', pin: true },
+    { id: 'FMA22345', cn: '左侧腹横肌', en: 'Left transversus abdominis', group: 'core', color: 0xa855f7, desc: '左侧腹横肌，与横膈肌、盆底肌共同构成核心压力罐。' },
+
+    // 真实盆底肌群：肛提肌 + 尾骨肌 (8)
+    { id: 'FMA45854', cn: '右侧耻骨尾骨肌 (盆底)', en: 'Right pubococcygeus', group: 'pelvic', color: 0x10b981, desc: '肛提肌核心部分（盆底吊床主体）：吸气随横膈肌微降放松，呼气主动轻提托举脏器。', pin: true },
+    { id: 'FMA45855', cn: '左侧耻骨尾骨肌 (盆底)', en: 'Left pubococcygeus', group: 'pelvic', color: 0x10b981, desc: '左侧耻骨尾骨肌，连接耻骨与尾骨。' },
+    { id: 'FMA45856', cn: '右侧耻骨直肠肌 (盆底)', en: 'Right puborectalis', group: 'pelvic', color: 0x059669, desc: 'U 形环绕直肠的盆底深层吊带肌，控制排便与核心底托。' },
+    { id: 'FMA45857', cn: '左侧耻骨直肠肌 (盆底)', en: 'Left puborectalis', group: 'pelvic', color: 0x059669, desc: '左侧耻骨直肠肌。' },
+    { id: 'FMA45858', cn: '右侧髂骨尾骨肌 (盆底)', en: 'Right iliococcygeus', group: 'pelvic', color: 0x34d399, desc: '构成盆底后外侧弹性吊床，承接吸气传导下来的腹内压。' },
+    { id: 'FMA45859', cn: '左侧髂骨尾骨肌 (盆底)', en: 'Left iliococcygeus', group: 'pelvic', color: 0x34d399, desc: '左侧髂骨尾骨肌。' },
+    { id: 'FMA46443', cn: '右侧尾骨肌 (盆底)', en: 'Right coccygeus', group: 'pelvic', color: 0x047857, desc: '盆底后壁肌群，稳定骶尾骨。' },
+    { id: 'FMA46444', cn: '左侧尾骨肌 (盆底)', en: 'Left coccygeus', group: 'pelvic', color: 0x047857, desc: '左侧尾骨肌。' },
+
+    // 胸廓前壁与锁骨 (7)
+    { id: 'FMA7486',  cn: '胸骨柄', en: 'Manubrium of sternum', group: 'bones', zone: 'upper_neck', color: 0xe7e1d3, desc: '胸骨上部，胸锁乳突肌附着点，颈部呼吸时被向上拉提。' },
+    { id: 'FMA7487',  cn: '胸骨体', en: 'Body of sternum', group: 'bones', zone: 'pump', color: 0xe7e1d3, desc: '胸式呼吸时做典型“泵柄运动 (Pump-handle)”向前上方抬升。' },
+    { id: 'FMA7488',  cn: '剑突', en: 'Xiphoid process', group: 'bones', zone: 'pump', color: 0xe7e1d3, desc: '横膈肌前部附着锚点。' },
+    { id: 'FMA13322', cn: '右侧锁骨', en: 'Right clavicle', group: 'bones', zone: 'upper_neck', color: 0xe7e1d3, desc: '颈部/锁骨式呼吸时明显耸起上提。' },
+    { id: 'FMA13323', cn: '左侧锁骨', en: 'Left clavicle', group: 'bones', zone: 'upper_neck', color: 0xe7e1d3, desc: '左侧锁骨。' },
+    { id: 'BP28',     cn: '右侧肋软骨', en: 'Right costal cartilage', group: 'bones', zone: 'pump', isCartilage: true, color: 0x93c5fd, desc: '赋予前胸廓呼吸弹性。' },
+    { id: 'BP24',     cn: '左侧肋软骨', en: 'Left costal cartilage', group: 'bones', zone: 'pump', isCartilage: true, color: 0x93c5fd, desc: '左侧肋软骨。' },
+
+    // 骨盆骨骼 (3)
+    { id: 'FMA16202', cn: '骶骨', en: 'Sacrum', group: 'bones', zone: 'static', color: 0xd6d3c9, desc: '脊柱底部与骨盆后壁，盆底肌后侧锚点。' },
+    { id: 'FMA16586', cn: '右侧髋骨', en: 'Right hip bone', group: 'bones', zone: 'static', color: 0xd6d3c9, desc: '构成骨盆环与前方耻骨联合，承托盆底肌。' },
+    { id: 'FMA16587', cn: '左侧髋骨', en: 'Left hip bone', group: 'bones', zone: 'static', color: 0xd6d3c9, desc: '左侧髋骨。' }
+  ];
+
+  // 第 1~12 对肋骨（按生物力学分区：1~2 颈部提拉区，3~6 泵柄区，7~10 桶柄区，11~12 浮肋区）
+  const RIB_PAIRS = [
+    ['FMA7857','FMA7987',1], ['FMA7882','FMA8012',2], ['FMA7909','FMA8039',3],
+    ['FMA7957','FMA8148',4], ['FMA8066','FMA8093',5], ['FMA8175','FMA8202',6],
+    ['FMA8229','FMA8256',7], ['FMA8283','FMA8310',8], ['FMA8364','FMA8391',9],
+    ['FMA8445','FMA8472',10],['FMA8531','FMA8532',11],['FMA8533','FMA8534',12]
+  ];
+  RIB_PAIRS.forEach(([rId, lId, n]) => {
+    const zone = n <= 2 ? 'upper_neck' : (n <= 6 ? 'pump' : 'bucket');
+    const zoneDesc = zone === 'upper_neck' ? '斜角肌直接附着于第 1~2 肋，颈部呼吸时被明显向上拉起。'
+                   : (zone === 'pump' ? '上位肋骨（3~6肋），胸式呼吸时以泵柄运动向前上方抬升。'
+                   : '下位肋骨（7~12肋），360° 呼吸时以桶柄运动向左右两侧外展。');
+    PARTS_META.push({ id: rId, cn: `右侧第 ${n} 肋`, en: `Right rib ${n}`, group: 'bones', zone, side: 1, color: 0xe7e1d3, desc: zoneDesc });
+    PARTS_META.push({ id: lId, cn: `左侧第 ${n} 肋`, en: `Left rib ${n}`, group: 'bones', zone, side: -1, color: 0xe7e1d3, desc: zoneDesc });
+  });
+
+  // 胸椎 T1–T12 + 腰椎 L1–L5
+  const VERTS = [
+    ['FMA9165','T1'],['FMA9187','T2'],['FMA9209','T3'],['FMA9248','T4'],
+    ['FMA9922','T5'],['FMA9945','T6'],['FMA9968','T7'],['FMA9991','T8'],
+    ['FMA10014','T9'],['FMA10037','T10'],['FMA10059','T11'],['FMA10081','T12'],
+    ['FMA13072','L1'],['FMA13073','L2'],['FMA13074','L3'],['FMA13075','L4'],['FMA13076','L5']
+  ];
+  VERTS.forEach(([id, label]) => {
+    PARTS_META.push({ id, cn: `椎骨 ${label}`, en: `Vertebra ${label}`, group: 'bones', zone: 'static', color: 0xd6d3c9, desc: `中轴脊柱 ${label}，构成呼吸与核心稳定的后方支撑轴。` });
+  });
+
+  // === 2. Three.js 场景与布光 ===
+  const rootEl = document.getElementById('threeRoot');
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(38, rootEl.clientWidth / rootEl.clientHeight, 1, 6000);
+  camera.position.set(480, 80, 780);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+  renderer.setSize(rootEl.clientWidth, rootEl.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
+  renderer.localClippingEnabled = true;
+  rootEl.appendChild(renderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.065;
+  controls.minDistance = 160;
+  controls.maxDistance = 1800;
+
+  scene.add(new THREE.HemisphereLight(0xe0f2fe, 0x0f172a, 0.74));
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.05);
+  keyLight.position.set(360, 580, 520);
+  scene.add(keyLight);
+  const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.55);
+  rimLight.position.set(-460, 180, -380);
+  scene.add(rimLight);
+  const fillLight = new THREE.DirectionalLight(0xfda4af, 0.25);
+  fillLight.position.set(0, -400, 300);
+  scene.add(fillLight);
+
+  const clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 1000);
+  const anatomyRoot = new THREE.Group();
+  anatomyRoot.rotation.x = -Math.PI / 2;
+  scene.add(anatomyRoot);
+
+  const meshesById = {};
+  const allMeshes = [];
+  const groups = { lungs: [], airway: [], diaphragm: [], intercostal: [], neck: [], core: [], pelvic: [], bones: [] };
+  const groupOpacity = { lungs: 0.82, airway: 1.0, diaphragm: 0.95, intercostal: 0.35, neck: 0.72, core: 0.38, pelvic: 0.95, bones: 0.38 };
+
+  let isReady = false, selectedMesh = null, showLabels = true, showVectors = true, camAnim = null;
+
+  function smoothCamTo(pos, tgt) {
+    camAnim = { startPos: camera.position.clone(), endPos: new THREE.Vector3(...pos), startTgt: controls.target.clone(), endTgt: new THREE.Vector3(...tgt), p: 0 };
+  }
+  function setCam(preset) {
+    if (preset === 'front') smoothCamTo([0, 10, 860], [0, -20, 0]);
+    else if (preset === 'side') smoothCamTo([-820, 10, 0], [0, -20, 0]);
+    else if (preset === 'neck') smoothCamTo([200, 270, 380], [0, 210, 0]);
+    else if (preset === 'pelvis') smoothCamTo([210, -210, 420], [0, -280, 0]);
+    else smoothCamTo([480, 80, 780], [0, -20, 0]);
+  }
+  window.setCam = setCam;
+
+  // === 3. 加载全部 83 个医学 STL ===
+  const loader = new THREE.STLLoader();
+  let loadedCount = 0;
+  const totalCount = PARTS_META.length;
+
+  function makeMaterial(meta) {
+    const op = groupOpacity[meta.group];
+    const clipTargets = (meta.group === 'lungs' || meta.group === 'intercostal' || meta.group === 'core' || (meta.group === 'bones' && meta.zone !== 'static')) ? [clipPlane] : [];
+    const cfg = {
+      color: meta.color, transparent: true,
+      opacity: meta.isCartilage ? Math.min(op + 0.18, 0.82) : op,
+      depthWrite: op > 0.82, side: THREE.DoubleSide, clippingPlanes: clipTargets
+    };
+    if (meta.group === 'lungs' || meta.group === 'diaphragm' || meta.group === 'pelvic') {
+      return new THREE.MeshPhysicalMaterial({ ...cfg, roughness: 0.42, metalness: 0.02, clearcoat: 0.25, clearcoatRoughness: 0.35 });
+    }
+    return new THREE.MeshStandardMaterial({ ...cfg, roughness: meta.group === 'bones' ? 0.56 : 0.44, metalness: 0.04 });
+  }
+
+  PARTS_META.forEach(meta => {
+    loader.load(`models/${meta.id}.stl`, geo => {
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, makeMaterial(meta));
+      mesh.userData = { meta, faded: false };
+      anatomyRoot.add(mesh);
+      meshesById[meta.id] = mesh;
+      allMeshes.push(mesh);
+      groups[meta.group].push(mesh);
+
+      loadedCount++;
+      const pct = Math.round((loadedCount / totalCount) * 100);
+      document.getElementById('loaderFill').style.width = pct + '%';
+      document.getElementById('loaderText').textContent = `已加载 ${loadedCount} / ${totalCount} 个真实医学网格 (${pct}%)`;
+      if (loadedCount === totalCount) onAllLoaded();
+    }, undefined, err => {
+      console.error('Load failed:', meta.id, err);
+      loadedCount++;
+      if (loadedCount === totalCount) onAllLoaded();
+    });
+  });
+
+  // === 4. 3D 发力矢量箭头系统 (Force Vectors) ===
+  const vectorGroup = new THREE.Group();
+  scene.add(vectorGroup);
+  const arrows = {};
+
+  function buildForceVectors() {
+    const getWorldC = id => {
+      const m = meshesById[id];
+      if (!m) return new THREE.Vector3();
+      const c = m.userData.localCenter.clone();
+      m.localToWorld(c);
+      return c;
+    };
+    const diaC = getWorldC('FMA13295');
+    const stC  = getWorldC('FMA7487');
+    const r8C  = getWorldC('FMA8283');
+    const l8C  = getWorldC('FMA8310');
+    const rNeck = getWorldC('FMA13408');
+    const lNeck = getWorldC('FMA13409');
+    const pelC = getWorldC('FMA45854');
+
+    // 横膈肌向下拉深箭头
+    arrows.dia = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, diaC.y + 15, diaC.z + 10), 65, 0xf97316, 18, 12);
+    // 下肋左右桶柄外展箭头
+    arrows.ribR = new THREE.ArrowHelper(new THREE.Vector3(-1, 0.15, 0).normalize(), new THREE.Vector3(r8C.x - 10, r8C.y, r8C.z), 55, 0x38bdf8, 15, 10);
+    arrows.ribL = new THREE.ArrowHelper(new THREE.Vector3(1, 0.15, 0).normalize(), new THREE.Vector3(l8C.x + 10, l8C.y, l8C.z), 55, 0x38bdf8, 15, 10);
+    // 胸骨泵柄向前上方抬升箭头
+    arrows.sternum = new THREE.ArrowHelper(new THREE.Vector3(0, 0.55, 0.85).normalize(), new THREE.Vector3(0, stC.y, stC.z + 15), 55, 0x60a5fa, 15, 10);
+    // 颈部代偿向上提拉箭头
+    arrows.neckR = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(rNeck.x, rNeck.y - 25, rNeck.z + 15), 60, 0xef4444, 16, 11);
+    arrows.neckL = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(lNeck.x, lNeck.y - 25, lNeck.z + 15), 60, 0xef4444, 16, 11);
+    // 盆底肌联动箭头
+    arrows.pelvic = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, pelC.y + 10, pelC.z), 50, 0x10b981, 15, 10);
+
+    Object.values(arrows).forEach(a => vectorGroup.add(a));
+  }
+
+  window.toggleVectors = function() {
+    showVectors = !showVectors;
+    vectorGroup.visible = showVectors;
+    document.getElementById('btnVectors').classList.toggle('active', showVectors);
+  };
+
+  // === 5. 3D 气道气流粒子 ===
+  let flowPoints = null, flowSeeds = [], airwayBounds = null;
+  function buildAirflowParticles() {
+    const tBox = new THREE.Box3().setFromObject(meshesById['FMA7394']);
+    const bBox = new THREE.Box3().setFromObject(meshesById['FMA7409']);
+    const tc = new THREE.Vector3(); tBox.getCenter(tc);
+    airwayBounds = { topY: tBox.max.y + 15, carinaY: tBox.min.y + 8, bottomY: bBox.min.y - 10, cx: tc.x, cz: tc.z, spanX: (bBox.max.x - bBox.min.x) * 0.48 };
+    const count = 150, pos = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      flowSeeds.push({ u: Math.random(), side: i % 2 === 0 ? 1 : -1, spread: 0.35 + Math.random() * 0.65, zJ: (Math.random() - 0.5) * 26, spd: 0.28 + Math.random() * 0.16 });
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    flowPoints = new THREE.Points(g, new THREE.PointsMaterial({ color: 0x22d3ee, size: 5.5, transparent: true, opacity: 0.88, depthTest: false }));
+    scene.add(flowPoints);
+  }
+  function updateAirflow(dt, isInhaling, speedMult) {
+    if (!flowPoints || !flowPoints.visible || !airwayBounds) return;
+    const arr = flowPoints.geometry.attributes.position.array;
+    const dir = isInhaling ? 1 : -1;
+    flowPoints.material.color.setHex(isInhaling ? 0x22d3ee : 0xfbbf24);
+    for (let i = 0; i < flowSeeds.length; i++) {
+      const s = flowSeeds[i];
+      s.u = (s.u + dir * s.spd * speedMult * dt + 1) % 1;
+      let x, y, z;
+      if (s.u < 0.38) {
+        const k = s.u / 0.38;
+        y = airwayBounds.topY + (airwayBounds.carinaY - airwayBounds.topY) * k;
+        x = airwayBounds.cx + Math.sin(i * 1.7) * 4;
+        z = airwayBounds.cz + Math.cos(i * 1.3) * 4;
+      } else {
+        const k = (s.u - 0.38) / 0.62;
+        y = airwayBounds.carinaY + (airwayBounds.bottomY - airwayBounds.carinaY) * k * s.spread;
+        x = airwayBounds.cx + s.side * airwayBounds.spanX * Math.pow(k, 0.85) * s.spread;
+        z = airwayBounds.cz + s.zJ * k;
+      }
+      arr[i*3] = x; arr[i*3+1] = y; arr[i*3+2] = z;
+    }
+    flowPoints.geometry.attributes.position.needsUpdate = true;
+  }
+
+  // === 6. 空间浮标标注 ===
+  const pinElements = [];
+  function buildPinLabels() {
+    const layer = document.getElementById('labelsLayer');
+    PARTS_META.filter(m => m.pin).forEach(meta => {
+      const mesh = meshesById[meta.id];
+      if (!mesh) return;
+      const el = document.createElement('div');
+      el.className = 'pin-label';
+      el.innerHTML = `<span class="pin-dot" style="background:#${meta.color.toString(16).padStart(6,'0')}"></span>${meta.cn}`;
+      layer.appendChild(el);
+      pinElements.push({ el, mesh });
+    });
+  }
+  const tmpV = new THREE.Vector3();
+  function updatePinLabels() {
+    const layer = document.getElementById('labelsLayer');
+    layer.style.display = showLabels ? 'block' : 'none';
+    if (!showLabels) return;
+    const w = rootEl.clientWidth, h = rootEl.clientHeight;
+    pinElements.forEach(({ el, mesh }) => {
+      if (!mesh.visible) { el.style.opacity = '0'; return; }
+      tmpV.copy(mesh.userData.localCenter);
+      mesh.localToWorld(tmpV);
+      tmpV.project(camera);
+      if (tmpV.z > 1) { el.style.opacity = '0'; return; }
+      el.style.left = ((tmpV.x * 0.5 + 0.5) * w) + 'px';
+      el.style.top = ((-tmpV.y * 0.5 + 0.5) * h) + 'px';
+      el.style.opacity = '1';
+    });
+  }
+  window.toggleLabels = function() {
+    showLabels = !showLabels;
+    document.getElementById('btnLabels').classList.toggle('active', showLabels);
+  };
+
+  // === 7. 初始化完成回调 ===
+  function onAllLoaded() {
+    try {
+      const box = new THREE.Box3();
+      [...groups.lungs, ...groups.diaphragm, ...groups.core].forEach(m => box.expandByObject(m));
+      const c = new THREE.Vector3();
+      box.getCenter(c);
+      anatomyRoot.position.sub(c);
+      anatomyRoot.updateMatrixWorld(true);
+
+      allMeshes.forEach(m => {
+        m.geometry.computeBoundingBox();
+        const lc = new THREE.Vector3();
+        m.geometry.boundingBox.getCenter(lc);
+        m.userData.localCenter = lc.clone();
+      });
+
+      buildForceVectors();
+      buildAirflowParticles();
+      buildPinLabels();
+      renderPartList('');
+
+      camera.position.set(480, 80, 780);
+      controls.target.set(0, -20, 0);
+      controls.update();
+
+      isReady = true;
+      document.getElementById('loaderOverlay').style.display = 'none';
+    } catch (err) {
+      console.error(err);
+      document.getElementById('loaderText').textContent = '初始化错误: ' + err.message;
+    }
+  }
+
+  // === 8. 搜索、点选、检查器 ===
+  const partListEl = document.getElementById('partList');
+  function renderPartList(q) {
+    partListEl.innerHTML = '';
+    const qs = q.trim().toLowerCase();
+    PARTS_META.forEach(meta => {
+      if (qs && !meta.cn.toLowerCase().includes(qs) && !meta.en.toLowerCase().includes(qs) && !meta.id.toLowerCase().includes(qs)) return;
+      const m = meshesById[meta.id];
+      if (!m) return;
+      const div = document.createElement('div');
+      div.className = 'part-item' + (selectedMesh === m ? ' selected' : '');
+      div.dataset.id = meta.id;
+      div.innerHTML = `<span>${meta.cn}</span><span class="part-fma">${meta.id}</span>`;
+      div.addEventListener('click', () => selectMesh(m));
+      partListEl.appendChild(div);
+    });
+  }
+  document.getElementById('searchInput').addEventListener('input', e => renderPartList(e.target.value));
+
+  function selectMesh(mesh) {
+    if (selectedMesh) selectedMesh.material.emissive.setHex(0x000000);
+    selectedMesh = mesh;
+    mesh.material.emissive.setHex(0x1d4ed8);
+    const meta = mesh.userData.meta;
+    document.getElementById('inspName').textContent = meta.cn;
+    document.getElementById('inspEn').textContent = meta.en;
+    document.getElementById('inspFma').textContent = `FMA ID: ${meta.id}`;
+    document.getElementById('inspDesc').textContent = meta.desc;
+    document.querySelectorAll('.part-item').forEach(el => el.classList.toggle('selected', el.dataset.id === meta.id));
+  }
+
+  const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
+  let downXY = { x: 0, y: 0 };
+  rootEl.addEventListener('pointerdown', e => { downXY = { x: e.clientX, y: e.clientY }; });
+  rootEl.addEventListener('pointerup', e => {
+    if (Math.hypot(e.clientX - downXY.x, e.clientY - downXY.y) > 5) return;
+    const r = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(allMeshes.filter(m => m.visible), false);
+    if (hits.length > 0) selectMesh(hits[0].object);
+  });
+
+  document.getElementById('btnIsolate').addEventListener('click', () => { if (selectedMesh) allMeshes.forEach(m => m.visible = (m === selectedMesh)); });
+  document.getElementById('btnHide').addEventListener('click', () => { if (selectedMesh) selectedMesh.visible = false; });
+  document.getElementById('btnFade').addEventListener('click', () => {
+    if (!selectedMesh) return;
+    selectedMesh.userData.faded = !selectedMesh.userData.faded;
+    const op = selectedMesh.userData.faded ? 0.14 : groupOpacity[selectedMesh.userData.meta.group];
+    selectedMesh.material.opacity = op;
+    selectedMesh.material.depthWrite = op > 0.82;
+  });
+  document.getElementById('btnFocus').addEventListener('click', () => {
+    if (!selectedMesh) return;
+    const wc = selectedMesh.userData.localCenter.clone();
+    selectedMesh.localToWorld(wc);
+    smoothCamTo([wc.x + 210, wc.y + 60, wc.z + 320], [wc.x, wc.y, wc.z]);
+  });
+
+  // === 9. 图层与预设 ===
+  const layerMap = {
+    lungs: ['chkLungs','opLungs','valLungs'], airway: ['chkAirway','opAirway','valAirway'],
+    diaphragm: ['chkDia','opDia','valDia'], intercostal: ['chkIntercostal','opIntercostal','valIntercostal'],
+    neck: ['chkNeck','opNeck','valNeck'], core: ['chkCore','opCore','valCore'],
+    pelvic: ['chkPelvic','opPelvic','valPelvic'], bones: ['chkBones','opBones','valBones']
+  };
+  function setGroupOpacity(g, pct) {
+    const v = pct / 100;
+    groupOpacity[g] = v;
+    document.getElementById(layerMap[g][1]).value = pct;
+    document.getElementById(layerMap[g][2]).textContent = pct + '%';
+    groups[g].forEach(m => {
+      const op = m.userData.meta.isCartilage ? Math.min(v + 0.18, 0.82) : v;
+      m.material.opacity = op;
+      m.material.depthWrite = op > 0.82;
+    });
+  }
+  Object.entries(layerMap).forEach(([g, [cId, rId]]) => {
+    document.getElementById(cId).addEventListener('change', e => groups[g].forEach(m => m.visible = e.target.checked));
+    document.getElementById(rId).addEventListener('input', e => setGroupOpacity(g, Number(e.target.value)));
+  });
+  document.getElementById('chkFlow').addEventListener('change', e => { if (flowPoints) flowPoints.visible = e.target.checked; });
+
+  const sliceSlider = document.getElementById('sliceSlider');
+  function setSlice(pct) {
+    sliceSlider.value = pct;
+    if (pct <= 1) { clipPlane.constant = 1000; document.getElementById('sliceVal').textContent = '关闭'; }
+    else { clipPlane.constant = 155 - (pct / 100) * 255; document.getElementById('sliceVal').textContent = pct + '%'; }
+  }
+  sliceSlider.addEventListener('input', e => setSlice(Number(e.target.value)));
+
+  function resetAll() {
+    allMeshes.forEach(m => { m.visible = true; m.userData.faded = false; });
+    Object.values(layerMap).forEach(([cId]) => document.getElementById(cId).checked = true);
+    document.getElementById('chkFlow').checked = true;
+    if (flowPoints) flowPoints.visible = true;
+    setGroupOpacity('lungs', 82); setGroupOpacity('airway', 100); setGroupOpacity('diaphragm', 95);
+    setGroupOpacity('intercostal', 35); setGroupOpacity('neck', 72); setGroupOpacity('core', 38);
+    setGroupOpacity('pelvic', 95); setGroupOpacity('bones', 38);
+    setSlice(0);
+  }
+  window.resetAll = resetAll;
+
+  window.applyPreset = function(name) {
+    ['preStandard','preXray','preSlice','preMuscle'].forEach(id => document.getElementById(id).classList.remove('active'));
+    resetAll();
+    if (name === 'standard') { document.getElementById('preStandard').classList.add('active'); setCam('iso'); }
+    else if (name === 'xray') {
+      document.getElementById('preXray').classList.add('active');
+      setGroupOpacity('lungs', 18); setGroupOpacity('bones', 16); setGroupOpacity('intercostal', 10); setGroupOpacity('core', 14);
+      setCam('front');
+    } else if (name === 'slice') {
+      document.getElementById('preSlice').classList.add('active');
+      setGroupOpacity('lungs', 94); setGroupOpacity('bones', 55); setGroupOpacity('core', 55); setSlice(52); setCam('front');
+    } else if (name === 'muscle') {
+      document.getElementById('preMuscle').classList.add('active');
+      setGroupOpacity('lungs', 20); setGroupOpacity('bones', 26); setGroupOpacity('intercostal', 82);
+      setGroupOpacity('neck', 95); setGroupOpacity('diaphragm', 100); setGroupOpacity('core', 62); setGroupOpacity('pelvic', 100);
+      setCam('iso');
+    }
+  };
+
+  // === 10. 四种呼吸模式生物力学参数 ===
+  const MODES = {
+    ab: {
+      period: 4.8, diaAmp: 24, pumpAmp: 0.012, bucketAmp: 0.025, neckLift: 0, abAmp: 0.11, pelAmp: 11, lungAmp: 0.09,
+      tidal: 550, pressMin: -7.8,
+      dims: [80, 30, 15], emg: [80, 20, 0],
+      emgGlow: { dia: 0.78, ic: 0.18, neck: 0.0, coreExhale: 0.45 },
+      note: '1. 腹式呼吸：横膈肌主动收缩下降拉深【纵径】，腹横肌吸气放松外扩、盆底肌离心微降承接；上胸与颈部完全放松。'
+    },
+    m360: {
+      period: 5.8, diaAmp: 28, pumpAmp: 0.032, bucketAmp: 0.088, neckLift: 0, abAmp: 0.085, pelAmp: 12, lungAmp: 0.135,
+      tidal: 1150, pressMin: -9.4,
+      dims: [90, 92, 40], emg: [70, 30, 0],
+      emgGlow: { dia: 0.90, ic: 0.65, neck: 0.0, coreExhale: 0.75 },
+      note: '2. 360° 胸腹联合（最推荐）：横膈肌下降（纵径）+ 下肋 7~10 明显桶柄外展（横径）+ 腹横肌/盆底协同，锁骨和颈部零代偿。'
+    },
+    chest: {
+      period: 3.6, diaAmp: 9, pumpAmp: 0.075, bucketAmp: 0.042, neckLift: 5, abAmp: 0.015, pelAmp: 3, lungAmp: 0.075,
+      tidal: 450, pressMin: -7.0,
+      dims: [28, 48, 88], emg: [25, 65, 10],
+      emgGlow: { dia: 0.22, ic: 0.92, neck: 0.25, coreExhale: 0.15 },
+      note: '3. 胸式呼吸：肋间外肌高亮收缩，上位肋骨与胸骨做明显【泵柄运动】向前上方抬起（扩大前后径）；腹部与横膈肌参与度低。'
+    },
+    neck: {
+      period: 2.6, diaAmp: 4, pumpAmp: 0.045, bucketAmp: 0.015, neckLift: 24, abAmp: 0.005, pelAmp: 1, lungAmp: 0.048,
+      tidal: 310, pressMin: -6.1,
+      dims: [12, 15, 65], emg: [15, 30, 55],
+      emgGlow: { dia: 0.08, ic: 0.35, neck: 1.0, coreExhale: 0.05 },
+      note: '⚠️ 4. 颈部代偿呼吸：胸锁乳突肌 + 6 块斜角肌 + 上斜方肌 + 胸小肌全部泛红代偿，硬把锁骨与第 1~2 肋向上耸起！长期极易肩颈酸痛。'
+    }
+  };
+
+  let playing = true, breathMode = 'ab', t = 0, lastTime = performance.now();
+  const btnPlay = document.getElementById('btnPlay');
+  const phaseSlider = document.getElementById('phaseSlider');
+  const sCtx = document.getElementById('scopeCanvas').getContext('2d');
+
+  function setMode(m) {
+    breathMode = m;
+    document.getElementById('modeAb').classList.toggle('active', m === 'ab');
+    document.getElementById('mode360').classList.toggle('active', m === 'm360');
+    document.getElementById('modeChest').classList.toggle('active', m === 'chest');
+    document.getElementById('modeNeck').classList.toggle('active', m === 'neck');
+    const c = MODES[m];
+    document.getElementById('dimVertTxt').textContent = c.dims[0] + '%';
+    document.getElementById('dimVertBar').style.width = c.dims[0] + '%';
+    document.getElementById('dimTransTxt').textContent = c.dims[1] + '%';
+    document.getElementById('dimTransBar').style.width = c.dims[1] + '%';
+    document.getElementById('dimApTxt').textContent = c.dims[2] + '%';
+    document.getElementById('dimApBar').style.width = c.dims[2] + '%';
+    document.getElementById('emgDiaTxt').textContent = c.emg[0] + '%';
+    document.getElementById('emgDiaBar').style.width = c.emg[0] + '%';
+    document.getElementById('emgRibTxt').textContent = c.emg[1] + '%';
+    document.getElementById('emgRibBar').style.width = c.emg[1] + '%';
+    document.getElementById('emgNeckTxt').textContent = c.emg[2] + '%';
+    document.getElementById('emgNeckBar').style.width = c.emg[2] + '%';
+    document.getElementById('modeNote').textContent = c.note;
+  }
+  document.getElementById('modeAb').addEventListener('click', () => setMode('ab'));
+  document.getElementById('mode360').addEventListener('click', () => setMode('m360'));
+  document.getElementById('modeChest').addEventListener('click', () => setMode('chest'));
+  document.getElementById('modeNeck').addEventListener('click', () => setMode('neck'));
+
+  btnPlay.addEventListener('click', () => {
+    playing = !playing;
+    btnPlay.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+    btnPlay.classList.toggle('active', playing);
+  });
+  phaseSlider.addEventListener('input', e => {
+    playing = false; btnPlay.textContent = '▶ 播放'; btnPlay.classList.remove('active');
+    t = Number(e.target.value) / 100;
+    applyBreathing(t, 0.016);
+  });
+
+  function applyBreathing(cycle, dt) {
+    const cfg = MODES[breathMode];
+    let f, isInhaling, flowRate;
+    if (cycle < 0.42) {
+      isInhaling = true;
+      const p = cycle / 0.42;
+      f = 0.5 - 0.5 * Math.cos(Math.PI * p);
+      flowRate = Math.sin(Math.PI * p);
+    } else {
+      isInhaling = false;
+      const p = (cycle - 0.42) / 0.58;
+      f = 0.5 + 0.5 * Math.cos(Math.PI * p);
+      flowRate = -Math.sin(Math.PI * p) * 0.75;
+    }
+    const inhaleDrive = isInhaling ? Math.sin(Math.PI * (cycle / 0.42)) : 0;
+    const exhaleDrive = !isInhaling ? Math.sin(Math.PI * ((cycle - 0.42) / 0.58)) : 0;
+
+    // 1. 横膈肌下降 + 实时 EMG 橙红高亮
+    const dia = meshesById['FMA13295'];
+    if (dia) {
+      dia.position.z = -cfg.diaAmp * f;
+      dia.scale.set(1 + 0.025 * f, 1 + 0.025 * f, 1 - 0.09 * f);
+      if (dia !== selectedMesh) {
+        const g = cfg.emgGlow.dia * (0.25 + 0.75 * inhaleDrive) * f;
+        dia.material.emissive.setRGB(g * 0.85, g * 0.25, 0);
+      }
+    }
+
+    // 2. 肋间外肌扩张 + EMG 高亮
+    const ic = meshesById['FMA9756'];
+    if (ic) {
+      const c = ic.userData.localCenter;
+      const sx = 1 + cfg.bucketAmp * 0.85 * f;
+      const sy = 1 + cfg.pumpAmp * 0.9 * f;
+      ic.scale.set(sx, sy, 1);
+      ic.position.set(c.x * (1 - sx) * 0.35, c.y * (1 - sy) * 0.35 - cfg.pumpAmp * 70 * f, cfg.pumpAmp * 60 * f);
+      if (ic !== selectedMesh) {
+        const g = cfg.emgGlow.ic * f;
+        ic.material.emissive.setRGB(g * 0.85, g * 0.35, 0);
+      }
+    }
+
+    // 3. 分区骨骼动画（锁骨/1-2肋耸肩 vs 3-6肋泵柄 vs 7-12肋桶柄）
+    groups.bones.forEach(b => {
+      const meta = b.userData.meta;
+      const c = b.userData.localCenter;
+      if (meta.zone === 'static') return;
+      if (meta.zone === 'upper_neck') {
+        b.position.set(0, -cfg.pumpAmp * 55 * f, (cfg.neckLift + cfg.pumpAmp * 65) * f);
+      } else if (meta.zone === 'pump') {
+        const sy = 1 + cfg.pumpAmp * f;
+        b.scale.set(1 + cfg.pumpAmp * 0.35 * f, sy, 1);
+        b.position.set(0, c.y * (1 - sy) * 0.3 - cfg.pumpAmp * 115 * f, (cfg.pumpAmp * 90 + cfg.neckLift * 0.45) * f);
+      } else if (meta.zone === 'bucket') {
+        const sx = 1 + cfg.bucketAmp * f;
+        b.scale.set(sx, 1 + cfg.bucketAmp * 0.45 * f, 1);
+        b.position.set((meta.side || 0) * cfg.bucketAmp * 75 * f, -cfg.bucketAmp * 35 * f, cfg.bucketAmp * 42 * f);
+      }
+    });
+
+    // 4. 颈肩辅助/代偿肌群高亮 + 缩短上提
+    groups.neck.forEach(m => {
+      const sub = m.userData.meta.sub;
+      let glow = cfg.emgGlow.neck;
+      if (sub === 'chest_aux' && breathMode === 'chest') glow = 0.72;
+      if (m !== selectedMesh) {
+        m.material.emissive.setRGB(glow * f * 0.95, glow * f * 0.14, glow * f * 0.06);
+      }
+      const c = m.userData.localCenter;
+      const lift = (sub === 'chest_aux' ? cfg.pumpAmp * 55 : cfg.neckLift * 0.55) * f;
+      m.position.set(0, 0, lift);
+    });
+
+    // 5. 肺叶 3D 扩张
+    groups.lungs.forEach(lung => {
+      const c = lung.userData.localCenter;
+      const sx = 1 + (cfg.bucketAmp * 1.1 + cfg.lungAmp * 0.5) * f;
+      const sy = 1 + (cfg.pumpAmp * 1.1 + cfg.lungAmp * 0.5) * f;
+      const sz = 1 + cfg.lungAmp * 1.15 * f;
+      lung.scale.set(sx, sy, sz);
+      lung.position.set(c.x * (1 - sx), c.y * (1 - sy), c.z * (1 - sz) - cfg.diaAmp * 0.42 * f + cfg.neckLift * 0.25 * f);
+    });
+
+    // 6. 腹横肌：吸气外扩，呼气内收激活
+    groups.core.forEach(m => {
+      const c = m.userData.localCenter;
+      const sx = 1 + cfg.abAmp * 0.65 * f;
+      const sy = 1 + cfg.abAmp * 1.05 * f;
+      m.scale.set(sx, sy, 1);
+      m.position.set(c.x * (1 - sx) * 0.3, c.y * (1 - sy) * 0.3 - cfg.abAmp * 85 * f, 0);
+      if (m !== selectedMesh) {
+        const g = cfg.emgGlow.coreExhale * exhaleDrive;
+        m.material.emissive.setRGB(g * 0.35, g * 0.12, g * 0.65);
+      }
+    });
+
+    // 7. 8 块盆底肌：吸气离心微降，呼气向心上提泛翠绿高亮
+    groups.pelvic.forEach(m => {
+      m.position.z = -cfg.pelAmp * f;
+      if (m !== selectedMesh) {
+        const g = cfg.emgGlow.coreExhale * exhaleDrive;
+        m.material.emissive.setRGB(0, g * 0.65, g * 0.35);
+      }
+    });
+
+    // 8. 更新 3D 发力矢量箭头
+    if (arrows.dia && showVectors) {
+      arrows.dia.visible = cfg.diaAmp > 6;
+      arrows.dia.setLength(25 + cfg.diaAmp * 2.2 * f, 16, 11);
+
+      const bLen = 15 + cfg.bucketAmp * 780 * f;
+      arrows.ribR.visible = arrows.ribL.visible = cfg.bucketAmp > 0.02;
+      arrows.ribR.setLength(bLen, 14, 9); arrows.ribL.setLength(bLen, 14, 9);
+
+      arrows.sternum.visible = cfg.pumpAmp > 0.02;
+      arrows.sternum.setLength(18 + cfg.pumpAmp * 850 * f, 15, 10);
+
+      arrows.neckR.visible = arrows.neckL.visible = cfg.neckLift > 8;
+      const nLen = 22 + cfg.neckLift * 2.4 * f;
+      arrows.neckR.setLength(nLen, 16, 11); arrows.neckL.setLength(nLen, 16, 11);
+
+      arrows.pelvic.visible = cfg.pelAmp > 4;
+      arrows.pelvic.setDirection(new THREE.Vector3(0, isInhaling ? -1 : 1, 0));
+      arrows.pelvic.setLength(24 + cfg.pelAmp * 2.5 * (isInhaling ? f : (1 - f)), 14, 9);
+    }
+
+    // 9. 气道粒子流 & 实时监护
+    updateAirflow(dt, isInhaling, 0.55 + Math.abs(flowRate) * 1.3);
+    document.getElementById('mVol').textContent = `+${Math.round(cfg.tidal * f)} mL`;
+    document.getElementById('mPress').textContent = `${(-5.0 + (cfg.pressMin + 5.0) * f).toFixed(1)}`;
+    document.getElementById('mDia').textContent = `-${(cfg.diaAmp / 10 * f).toFixed(1)} cm`;
+
+    const pTitle = document.getElementById('phaseTitle');
+    const pSub = document.getElementById('phaseSub');
+    if (isInhaling) {
+      pTitle.textContent = '吸气相 Inspiration'; pTitle.style.color = '#38bdf8';
+      pSub.textContent = breathMode === 'neck' ? '颈肩代偿肌群泛红强拉锁骨' : (breathMode === 'chest' ? '肋间外肌收缩 · 胸骨泵柄抬升' : '横膈肌下降 · 盆底微降承接');
+    } else {
+      pTitle.textContent = '呼气相 Expiration'; pTitle.style.color = '#10b981';
+      pSub.textContent = breathMode === 'neck' ? '耸肩回落 · 换气浅表' : '腹横肌微收 · 盆底肌轻柔上提';
+    }
+    phaseSlider.value = Math.round(cycle * 100);
+    drawScope(cycle);
+  }
+
+  function drawScope(curr) {
+    const W = scopeCanvas.width, H = scopeCanvas.height;
+    sCtx.clearRect(0, 0, W, H);
+    sCtx.strokeStyle = 'rgba(148,163,184,0.1)'; sCtx.lineWidth = 1;
+    for (let y = 24; y < H; y += 24) { sCtx.beginPath(); sCtx.moveTo(0,y); sCtx.lineTo(W,y); sCtx.stroke(); }
+    const cv = p => p < 0.42 ? 0.5 - 0.5 * Math.cos(Math.PI * (p / 0.42)) : 0.5 + 0.5 * Math.cos(Math.PI * ((p - 0.42) / 0.58));
+    const fv = p => p < 0.42 ? Math.sin(Math.PI * (p / 0.42)) : -Math.sin(Math.PI * ((p - 0.42) / 0.58)) * 0.72;
+
+    sCtx.strokeStyle = '#38bdf8'; sCtx.lineWidth = 2; sCtx.beginPath();
+    for (let x = 0; x <= W; x++) { const y = H - 14 - cv(x/W)*(H - 28); x===0 ? sCtx.moveTo(x,y) : sCtx.lineTo(x,y); }
+    sCtx.stroke();
+    sCtx.strokeStyle = '#f97316'; sCtx.lineWidth = 1.6; sCtx.beginPath();
+    for (let x = 0; x <= W; x++) { const y = 18 + cv(x/W)*(H - 36); x===0 ? sCtx.moveTo(x,y) : sCtx.lineTo(x,y); }
+    sCtx.stroke();
+    sCtx.strokeStyle = 'rgba(16,185,129,0.75)'; sCtx.lineWidth = 1.4; sCtx.beginPath();
+    for (let x = 0; x <= W; x++) { const y = H*0.5 - fv(x/W)*(H*0.32); x===0 ? sCtx.moveTo(x,y) : sCtx.lineTo(x,y); }
+    sCtx.stroke();
+    sCtx.strokeStyle = '#f8fafc'; sCtx.lineWidth = 1.5;
+    sCtx.beginPath(); sCtx.moveTo(curr*W, 3); sCtx.lineTo(curr*W, H - 3); sCtx.stroke();
+  }
+
+  function animate(now) {
+    requestAnimationFrame(animate);
+    const dt = Math.min((now - lastTime) / 1000, 0.05);
+    lastTime = now;
+    if (camAnim) {
+      camAnim.p = Math.min(1, camAnim.p + dt * 2.5);
+      const e = 1 - Math.pow(1 - camAnim.p, 3);
+      camera.position.lerpVectors(camAnim.startPos, camAnim.endPos, e);
+      controls.target.lerpVectors(camAnim.startTgt, camAnim.endTgt, e);
+      if (camAnim.p >= 1) camAnim = null;
+    }
+    if (isReady) {
+      if (playing) t = (t + dt / MODES[breathMode].period) % 1;
+      applyBreathing(t, dt);
+      updatePinLabels();
+    }
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  window.addEventListener('resize', () => {
+    camera.aspect = rootEl.clientWidth / rootEl.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(rootEl.clientWidth, rootEl.clientHeight);
+  });
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
